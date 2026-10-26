@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Batman: Aventura em Gotham</title>
+<style>
+:root{--gold:#ffd34e}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070b16;color:#f4f6ff;font-family:system-ui,Arial,sans-serif;touch-action:none}
+body{display:flex;justify-content:center;align-items:center}
+.app{width:min(100vw,1100px);height:100dvh;display:flex;flex-direction:column;padding:8px;gap:6px}
+header{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+h1{font-size:clamp(13px,2.6vw,22px);margin:0;letter-spacing:.6px}h1 span{color:var(--gold)}
+.hud{display:flex;gap:5px}.pill{background:#111d33;border:1px solid #344665;border-radius:99px;padding:5px 9px;font-weight:800;font-size:clamp(10px,1.8vw,14px)}
+.gamebox{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+canvas{width:100%;height:100%;max-height:calc(100dvh - 125px);object-fit:contain;border:2px solid #52688a;border-radius:9px;background:#091226;image-rendering:pixelated}
+footer{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:#c7d4e8;min-height:25px}
+button{border:0;border-radius:12px;background:#ffd34e;color:#171b25;font-weight:900;padding:9px 12px;font-size:15px;touch-action:none;user-select:none;-webkit-user-select:none}
+#restart{font-size:11px;padding:7px 9px}
+.controls{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-bottom:max(5px,env(safe-area-inset-bottom))}
+.cluster{display:flex;gap:12px}.control{width:clamp(56px,15vw,82px);height:clamp(56px,15vw,82px);border-radius:50%;font-size:25px;background:#e9edf5dd;box-shadow:0 4px 0 #7f8ba2;display:flex;align-items:center;justify-content:center}
+.jump{width:clamp(74px,20vw,100px);height:clamp(74px,20vw,100px);background:#ffd34eee}
+@media(min-width:800px) and (pointer:fine){.controls{display:none}.app{padding:12px}canvas{max-height:calc(100dvh - 100px)}}
+@media(max-height:500px){.app{padding:4px;gap:3px}header{min-height:25px}.pill{padding:3px 7px}footer{min-height:16px}.control{width:52px;height:52px}.jump{width:62px;height:62px}canvas{max-height:calc(100dvh - 95px)}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1><span>BATMAN</span>: AVENTURA EM GOTHAM</h1><div class="hud"><div class="pill" id="level">Nível 1/10</div><div class="pill" id="score">🦇 0</div><div class="pill" id="lives">♥♥♥</div></div></header>
+<div class="gamebox"><canvas id="game" width="960" height="540"></canvas></div>
+<footer><span>Celular: use os botões · PC: ← → e Espaço · P pausa</span><button id="restart">REINICIAR</button></footer>
+<div class="controls">
+ <div class="cluster"><button class="control" data-control="left" aria-label="Andar para esquerda">◀</button><button class="control" data-control="right" aria-label="Andar para direita">▶</button></div>
+ <button class="control jump" data-control="jump" aria-label="Pular">⬆</button>
+</div>
+</div>
+<script>
+(()=> {
+const c=document.getElementById('game'),g=c.getContext('2d'),W=960,H=540,gy=462;
+const ui={level:document.getElementById('level'),score:document.getElementById('score'),lives:document.getElementById('lives')};
+let held={left:false,right:false,jump:false},level=1,score=0,lives=3,paused=false,ended='',frame=0,cam=0,world=3000,player,plats,coins,enemies,goal,toast='',toastTime=120,jumpWas=false;
+const names=['Ruas de Gotham','Telhados sombrios','Beco do Crime','Torre do Relógio','Hangar da Batnave','Céu de Gotham','Canhão do Coringa','Tempestade elétrica','Fortaleza do Medo','Confronto final'];
+function build(n){
+ world=2550+n*155;cam=0;
+ plats=[{x:0,y:gy,w:world,h:100}];
+ for(let x=250,i=0;x<world-220;x+=245,i++){let y=gy-65-(i%3)*42;plats.push({x,y,w:125+(i%2)*20,h:17});if(i%3===1)plats.push({x:x+135,y:y-92,w:75,h:15});}
+ coins=[];for(let x=130;x<world-110;x+=100){let p=plats.find(p=>p.x<=x&&p.x+p.w>=x&&p.y<gy);coins.push({x,y:p?p.y-29:gy-44,t:false});}
+ enemies=[];for(let x=470;x<world-220;x+=425)enemies.push({x,y:gy-35,w:30,h:35,dir:x%2?1:-1,lo:x-70,hi:x+90,alive:true});
+ goal={x:world-110};
+ player={x:45,y:gy-50,w:n>=5?66:34,h:n>=5?35:48,vx:0,vy:0,on:false,inv:0};
+ toast=n>=5?'BATNAVE ATIVADA!':names[n-1].toUpperCase();toastTime=145;ended='';jumpWas=false;updateHud();
+}
+function updateHud(){ui.level.textContent=`Nível ${level}/10`;ui.score.textContent=`🦇 ${score}`;ui.lives.textContent='♥'.repeat(Math.max(0,lives))||'♡';}
+function reset(){level=1;score=0;lives=3;paused=false;build(level)}
+function next(){if(level===10){ended='won';return}level++;build(level)}
+function hurt(){if(player.inv>0)return;lives--;updateHud();if(lives<=0){ended='over';return}player.x=Math.max(20,player.x-100);player.y=gy-60;player.vy=0;player.inv=100}
+function key(e,down){let k=e.key.toLowerCase();if(['arrowleft','arrowright','arrowup',' ','a','d','w','p'].includes(k))e.preventDefault();if(k==='arrowleft'||k==='a')held.left=down;if(k==='arrowright'||k==='d')held.right=down;if(k===' '||k==='arrowup'||k==='w')held.jump=down;if(down&&k==='p'&&!e.repeat)paused=!paused}
+addEventListener('keydown',e=>key(e,true));addEventListener('keyup',e=>key(e,false));addEventListener('blur',()=>held={left:false,right:false,jump:false});
+document.querySelectorAll('[data-control]').forEach(b=>{let k=b.dataset.control;const set=v=>{held[k]=v;b.style.transform=v?'scale(.93)':''};b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);set(true)});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,e=>{e.preventDefault();set(false)}));});
+document.getElementById('restart').addEventListener('click',reset);
+function rect(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function update(){
+ if(paused||ended)return;frame++;if(toastTime>0)toastTime--;if(player.inv>0)player.inv--;
+ let speed=level>=5?4.5:4.1;player.vx=(held.right?speed:0)-(held.left?speed:0);player.x+=player.vx;
+ if(held.jump&&!jumpWas&&player.on){player.vy=level>=5?-12:-14;player.on=false}jumpWas=held.jump;
+ player.vy+=.58;player.y+=player.vy;player.on=false;
+ for(const p of plats){if(player.vy>=0&&player.x+player.w>p.x&&player.x<p.x+p.w&&player.y+player.h>=p.y&&player.y+player.h-player.vy<=p.y){player.y=p.y-player.h;player.vy=0;player.on=true}}
+ if(player.y>H+80){hurt();if(ended)return}
+ player.x=Math.max(0,Math.min(world-player.w,player.x));
+ for(const e of enemies){if(!e.alive)continue;e.x+=e.dir*1.25;if(e.x<e.lo||e.x>e.hi)e.dir*=-1;
+ if(rect(player,e)){if(player.vy>1&&player.y+player.h-e.y<20){e.alive=false;player.vy=-9;score+=2;updateHud()}else hurt()}}
+ for(const q of coins)if(!q.t&&rect(player,{x:q.x-10,y:q.y-10,w:20,h:20})){q.t=true;score++;updateHud()}
+ if(player.x+player.w>goal.x){next();return}
+ cam=Math.max(0,Math.min(world-W,player.x-W*.32));
+}
+function drawSky(){
+ let grad=g.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#101b39');grad.addColorStop(1,'#3c4563');g.fillStyle=grad;g.fillRect(0,0,W,H);
+ // moon
+ g.fillStyle='#e8e5c8';g.beginPath();g.arc(790,90,32,0,Math.PI*2);g.fill();
+ // Gotham skyline, parallax
+ for(let i=0;i<30;i++){let x=((i*115-cam*.22)%(W+130)+W+130)%(W+130)-50;let h=90+(i*47%150);g.fillStyle=i%2?'#101a31':'#17233e';g.fillRect(x,gy-h,65,h);g.fillStyle='#e9c96a';for(let wy=gy-h+14;wy<gy-10;wy+=19)for(let wx=x+9;wx<x+58;wx+=17)if((Math.floor(wx+wy+i)%3)!==0)g.fillRect(wx,wy,5,7)}
+ // bat signal
+ g.save();g.translate(120-cam*.12,110);g.fillStyle='#f9dc74';g.globalAlpha=.12;g.beginPath();g.ellipse(0,0,110,44,-.3,0,Math.PI*2);g.fill();g.globalAlpha=.8;g.fillStyle='#f9dc74';g.beginPath();g.ellipse(0,0,39,15,-.3,0,Math.PI*2);g.fill();g.fillStyle='#1b2743';g.beginPath();g.moveTo(-22,-2);g.lineTo(-12,-12);g.lineTo(-5,-5);g.lineTo(0,-13);g.lineTo(7,-5);g.lineTo(15,-12);g.lineTo(23,-1);g.lineTo(13,8);g.lineTo(0,12);g.lineTo(-13,8);g.closePath();g.fill();g.restore();
+}
+function drawBatman(x,y){g.save();g.translate(x,y);
+ // cape
+ g.fillStyle='#10131d';g.beginPath();g.moveTo(7,12);g.lineTo(-7,40);g.lineTo(4,35);g.lineTo(12,43);g.lineTo(19,35);g.lineTo(28,40);g.lineTo(25,12);g.closePath();g.fill();
+ // ears/head
+ g.fillStyle='#252b38';g.beginPath();g.moveTo(5,15);g.lineTo(7,0);g.lineTo(15,9);g.lineTo(24,0);g.lineTo(28,15);g.lineTo(27,27);g.lineTo(6,27);g.closePath();g.fill();
+ g.fillStyle='#e7cba5';g.fillRect(11,17,12,6);g.fillStyle='#fff';g.fillRect(11,17,4,2);g.fillRect(20,17,4,2);
+ g.fillStyle='#30394a';g.fillRect(7,27,21,17);g.fillStyle='#d6b44a';g.fillRect(13,32,10,4);g.fillStyle='#131824';g.fillRect(15,32,6,4);
+ g.fillStyle='#121621';g.fillRect(8,43,7,5);g.fillRect(22,43,7,5);g.restore();}
+function drawBatmobile(x,y){g.save();g.translate(x,y);g.fillStyle='#090e18';g.beginPath();g.moveTo(0,25);g.lineTo(9,13);g.lineTo(24,8);g.lineTo(37,0);g.lineTo(44,12);g.lineTo(62,15);g.lineTo(69,25);g.lineTo(59,30);g.lineTo(8,30);g.closePath();g.fill();g.fillStyle='#4b617a';g.beginPath();g.moveTo(24,12);g.lineTo(38,5);g.lineTo(43,14);g.closePath();g.fill();g.fillStyle='#ffd34e';g.fillRect(2,22,9,4);g.fillRect(60,22,7,4);g.fillStyle='#05070b';g.beginPath();g.arc(17,29,7,0,7);g.arc(52,29,7,0,7);g.fill();g.fillStyle='#6d7787';g.beginPath();g.arc(17,29,3,0,7);g.arc(52,29,3,0,7);g.fill();g.restore();}
+function draw(){
+ drawSky();
+ g.save();g.translate(-cam,0);
+ // ground and buildings details
+ g.fillStyle='#151d2b';g.fillRect(0,gy,world,H-gy);
+ g.strokeStyle='#343d4e';g.lineWidth=3;for(let x=0;x<world;x+=75){g.beginPath();g.moveTo(x,gy+25);g.lineTo(x+34,gy+25);g.stroke()}
+ for(const p of plats){if(p.y===gy)continue;g.fillStyle='#252d3f';g.fillRect(p.x,p.y,p.w,p.h);g.fillStyle='#626b7b';g.fillRect(p.x,p.y,p.w,4)}
+ for(const q of coins)if(!q.t){g.fillStyle='#ffd34e';g.beginPath();g.arc(q.x,q.y,9+Math.sin(frame/6+q.x)*1.5,0,Math.PI*2);g.fill();g.fillStyle='#fff0a3';g.fillRect(q.x-2,q.y-5,4,10)}
+ for(const e of enemies)if(e.alive){g.fillStyle='#782c42';g.fillRect(e.x,e.y+8,e.w,e.h-8);g.fillStyle='#d5d9e3';g.fillRect(e.x+4,e.y+14,7,4);g.fillRect(e.x+19,e.y+14,7,4);g.fillStyle='#1a1c27';g.fillRect(e.x+3,e.y+e.h-3,8,7);g.fillRect(e.x+20,e.y+e.h-3,8,7)}
+ // goal beacon
+ g.fillStyle='#1c3e37';g.fillRect(goal.x,gy-100,8,100);g.fillStyle='#70ffad';g.beginPath();g.arc(goal.x+4,gy-106,15,0,Math.PI*2);g.fill();g.fillStyle='#10251d';g.fillRect(goal.x-6,gy-112,20,12);g.fillStyle='#d7ffe5';g.fillRect(goal.x+1,gy-110,6,3);
+ if(level>=5)drawBatmobile(player.x,player.y+8);else drawBatman(player.x,player.y);
+ g.restore();
+ // labels / overlays
+ if(toastTime>0){g.fillStyle='#070b16b8';g.fillRect(W/2-235,24,470,43);g.fillStyle='#ffd34e';g.textAlign='center';g.font='bold 21px system-ui';g.fillText(toast,W/2,52)}
+ if(paused||ended){g.fillStyle='#050916d9';g.fillRect(0,0,W,H);g.textAlign='center';g.fillStyle='#ffd34e';g.font='bold 42px system-ui';g.fillText(paused?'PAUSADO':ended==='won'?'GOTHAM ESTÁ SALVA!':'FIM DE JOGO',W/2,H/2-20);g.fillStyle='#fff';g.font='20px system-ui';g.fillText(ended==='won'?'Você concluiu os 10 níveis!':ended==='over'?'Toque em REINICIAR para tentar novamente':'Pressione P para continuar',W/2,H/2+25)}
+}
+function loop(){update();draw();requestAnimationFrame(loop)}
+build(level);loop();
+})();
+</script>
+</body>
+</html>
